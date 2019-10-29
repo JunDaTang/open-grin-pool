@@ -40,6 +40,7 @@ type minerSession struct {
 	rig        string
 	agent      string
 	difficulty int64
+	edgeBits   int
 	ctx        context.Context
 }
 
@@ -104,7 +105,10 @@ func callStatusPerInterval(ctx context.Context, nc *nodeClient) {
 
 func (ss *stratumServer) handleConn(conn net.Conn) {
 	logger.Info("new conn from ", conn.RemoteAddr())
-	session := &minerSession{difficulty: int64(ss.conf.Node.Diff)}
+	session := &minerSession{
+		difficulty: int64(ss.conf.Node.Diff),
+		edgeBits:   int(ss.conf.StratumServer.EdgeBits),
+	}
 	defer conn.Close()
 	var login string
 	nc := initNodeStratumClient(ss.conf)
@@ -161,9 +165,7 @@ func (ss *stratumServer) handleConn(conn net.Conn) {
 		switch clientReq.Method {
 		case "login":
 			login, _ = clientReq.Params["login"].(string)
-
 			pass, _ := clientReq.Params["pass"].(string)
-
 			agent, _ := clientReq.Params["agent"].(string)
 
 			login = strings.TrimSpace(login)
@@ -189,6 +191,21 @@ func (ss *stratumServer) handleConn(conn net.Conn) {
 			logger.Info(session.user, "'s ", rig, agent, " has logged in")
 			_ = nc.enc.Encode(jsonRaw)
 
+		case "submit":
+			edgeBits, _ := clientReq.Params["edge_bits"].(int)
+			//job_id, _ := clientReq.Params["job_id"].(int)
+			if edgeBits != session.edgeBits {
+				logger.Warning(session.user, session.rig, "wrong edge_bits.")
+				_, _ = conn.Write([]byte(`{  
+					"id":0,
+					"jsonrpc":"2.0",
+					"method":"submit",
+					"error":{  
+					   "code":-32700,
+					   "message":"wrong edge_bits."
+					}
+				 }`))
+			}
 		default:
 			if session.hasNotLoggedIn() {
 				logger.Warning(login, " has not logged in")

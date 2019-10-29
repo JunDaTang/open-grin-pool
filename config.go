@@ -17,6 +17,7 @@ type config struct {
 		Address        string `json:"address"`
 		Port           int    `json:"port"`
 		BackupInterval string `json:"backup_interval"`
+		EdgeBits       int    `json:"edge_bits"`
 	} `json:"stratum_server"`
 	APIServer struct {
 		Address  string `json:"address"`
