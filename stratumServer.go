@@ -36,40 +36,42 @@ type stratumResponse struct {
 }
 
 type minerSession struct {
-	login      string
+	user       string
+	rig        string
 	agent      string
 	difficulty int64
 	ctx        context.Context
 }
 
 func (ms *minerSession) hasNotLoggedIn() bool {
-	return ms.login == ""
+	return ms.user == ""
 }
 
 func (ms *minerSession) handleMethod(res *stratumResponse, db *database) {
 	switch res.Method {
 	case "status":
-		if ms.login == "" {
+		if ms.user == "" {
 			logger.Warning("recv status detail before login")
 			break
 		}
-		result, _ := res.Result.(map[string]interface{})
-		db.setMinerAgentStatus(ms.login, ms.agent, ms.difficulty, result)
+		//result, _ := res.Result.(map[string]interface{})
+		//db.setMinerAgentStatus(ms.user, ms.agent, ms.difficulty, result)
 
 		break
 	case "submit":
 		if res.Error != nil {
-			logger.Warning(ms.login, "'s share has err: ", res.Error)
+			logger.Warning(ms.user, ms.rig, "'s share has err: ", res.Error)
 			break
 		}
 		detail, ok := res.Result.(string)
-		logger.Info(ms.login, " has submit a ", detail, " share")
+		logger.Info(ms.user, ms.rig, " has submit a ", detail, " share")
 		if ok {
-			db.putShare(ms.login, ms.agent, ms.difficulty)
+			db.putShare(ms.user, ms.agent, ms.difficulty)
+			db.recordShare(ms.user, ms.rig, ms.difficulty)
 			if strings.Contains(detail, "block") {
 				blockHash := strings.Trim(detail, "block - ")
 				db.putBlockHash(blockHash)
-				logger.Warning("block ", blockHash, " has been found by ", ms.login)
+				logger.Warning("block ", blockHash, " has been found by ", ms.user, ms.rig)
 			}
 		}
 		break
@@ -168,35 +170,23 @@ func (ss *stratumServer) handleConn(conn net.Conn) {
 			pass = strings.TrimSpace(pass)
 			agent = strings.TrimSpace(agent)
 
+			user := login
+			rig := "0"
+			parts := strings.Split(login, ".")
+			c := len(parts)
+			if c > 1 {
+				user = strings.Join(parts[:(c-1)], ".")
+				rig = parts[(c - 1)]
+			}
+
 			if agent == "" {
 				agent = "NoNameMiner" + strconv.FormatInt(rand.Int63(), 10)
 			}
 
-			switch ss.db.verifyMiner(login, pass) {
-			case wrongPassword:
-				logger.Warning(login, " has failed to login")
-				login = ""
-				_, _ = conn.Write([]byte(`{  
-   "id":"5",
-   "jsonrpc":"2.0",
-   "method":"login",
-   "error":{  
-      "code":-32500,
-      "message":"login incorrect"
-   }
-}`))
-
-			case noPassword:
-				ss.db.registerMiner(login, pass, "")
-				logger.Info(login, " has registered in")
-
-			case correctPassword:
-
-			}
-
-			session.login = login
+			session.user = user
+			session.rig = rig
 			session.agent = agent
-			logger.Info(session.login, "'s ", agent, " has logged in")
+			logger.Info(session.user, "'s ", rig, agent, " has logged in")
 			_ = nc.enc.Encode(jsonRaw)
 
 		default:

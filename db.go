@@ -43,6 +43,22 @@ func (db *database) registerMiner(login, pass, payment string) {
 	}
 }
 
+func (db *database) recordShare(user, rig string, diff int64) {
+	_, err := db.client.XAdd(
+		&redis.XAddArgs{
+			Stream: "shares2",
+			MaxLen: 1000000,
+			Values: map[string]interface{}{
+				"user": user,
+				"rig":  rig,
+				"diff": strconv.FormatInt(diff,10),
+			},
+		}).Result()
+	if err != nil {
+		logger.Error(err)
+	}
+}
+
 type minerLoginStatusCode int
 
 var (
