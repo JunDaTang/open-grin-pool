@@ -192,10 +192,14 @@ func (ss *stratumServer) handleConn(conn net.Conn) {
 			_ = nc.enc.Encode(jsonRaw)
 
 		case "submit":
-			edgeBits, _ := clientReq.Params["edge_bits"].(int)
-			//job_id, _ := clientReq.Params["job_id"].(int)
-			if edgeBits != session.edgeBits {
-				logger.Warning(session.user, session.rig, "wrong edge_bits.")
+			var target string
+			if session.edgeBits == 29 {
+				target = "edge_bits\":29"
+			} else {
+				target = "edge_bits\":31"
+			}
+			if !strings.Contains(string(jsonRaw), target) {
+				logger.Warning(session.user, session.rig, ": wrong edge_bits share.")
 				_, _ = conn.Write([]byte(`{  
 					"id":0,
 					"jsonrpc":"2.0",
