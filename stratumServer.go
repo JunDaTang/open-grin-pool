@@ -205,6 +205,8 @@ func (ss *stratumServer) handleConn(conn net.Conn) {
 					   "message":"wrong edge_bits."
 					}
 				 }`))
+			} else {
+				_ = nc.enc.Encode(jsonRaw)
 			}
 		default:
 			if session.hasNotLoggedIn() {
