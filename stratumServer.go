@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net"
 	"strconv"
@@ -192,12 +193,7 @@ func (ss *stratumServer) handleConn(conn net.Conn) {
 			_ = nc.enc.Encode(jsonRaw)
 
 		case "submit":
-			var target string
-			if session.edgeBits == 29 {
-				target = "edge_bits\":29"
-			} else {
-				target = "edge_bits\":31"
-			}
+			target := fmt.Sprintf("edge_bits\":%d", session.edgeBits)
 			if !strings.Contains(string(jsonRaw), target) {
 				logger.Warning(session.user, session.rig, ": wrong edge_bits share.")
 				_, _ = conn.Write([]byte(`{  
