@@ -1,4 +1,4 @@
-import redis, datetime
+import redis, datetime, requests
 stream = 'shares2'
 client = redis.Redis(host='localhost', port=6379, db=0, charset="utf-8", decode_responses=True)
 
@@ -10,9 +10,12 @@ def get_minute_range(dt, mins=1):
     end = int(dt_end.timestamp() * 1000 - 1)
     return [start, end]
 
+def get_mins(dt):
+    return dt.hour * 60 + dt.minute
+
 now = datetime.datetime.now() - datetime.timedelta(minutes=1)
 
-start, end = get_minute_range(now, 1)
+start, end = get_minute_range(now)
 print(start)
 print(end)
 data = client.xrange(stream, start, end)
@@ -38,3 +41,16 @@ for i in data:
     stats[user][rig] = stats[user][rig] + diff
 print(now)    
 print(stats)
+
+URL = ''
+TOKEN = ''
+data = {
+    't': str(get_mins(now)),
+    'stats': stats
+}
+payload = {
+    'token': TOKEN,
+    'data': data
+}
+resp = requests.post(URL, data=payload)
+print(resp.status)
