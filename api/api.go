@@ -1,54 +1,59 @@
-package main
+package api
 
 import (
 	"encoding/json"
-	"io/ioutil"
-	"net/http"
-	"strconv"
-
+	"fmt"
 	"github.com/google/logger"
 	"github.com/gorilla/mux"
+	"io/ioutil"
+	"net/http"
+	"open-grin-pool/config"
+	"open-grin-pool/db"
+	"strconv"
 )
 
-type apiServer struct {
-	db   *database
-	conf *config
-}
-
-func (as *apiServer) revenueHandler(w http.ResponseWriter, r *http.Request) {
+func RevenueHandler(w http.ResponseWriter, r *http.Request) {
 	var raw []byte
 	header := w.Header()
 	header.Set("Content-Type", "application/json")
 	header.Set("Access-Control-Allow-Origin", "*")
 
-	table := as.db.getLastDayRevenue()
+	table := db.DBServer.GetLastDayRevenue()
 	raw, _ = json.Marshal(table)
 
-	_, _ = w.Write(raw)
+	_, err := w.Write(raw)
+	if err != nil {
+		logger.Error(err)
+		return
+	}
 }
 
-func (as *apiServer) sharesHandler(w http.ResponseWriter, r *http.Request) {
+func SharesHandler(w http.ResponseWriter, r *http.Request) {
 	var raw []byte
 	header := w.Header()
 	header.Set("Content-Type", "application/json")
 	header.Set("Access-Control-Allow-Origin", "*")
 
-	table := as.db.getShares()
+	table := db.DBServer.GetShares()
 	raw, _ = json.Marshal(table)
 
-	_, _ = w.Write(raw)
+	_, err := w.Write(raw)
+	if err != nil {
+		logger.Error(err)
+		return
+	}
 }
 
-func (as *apiServer) poolHandler(w http.ResponseWriter, r *http.Request) {
+func PoolHandler(w http.ResponseWriter, r *http.Request) {
 	var blockBatch []string
 	header := w.Header()
 	header.Set("Content-Type", "application/json")
 	header.Set("Access-Control-Allow-Origin", "*")
 
-	blockBatch = as.db.getAllBlockHashes()
+	blockBatch = db.DBServer.GetAllBlockHashes()
 
-	req, _ := http.NewRequest("GET", "http://"+as.conf.Node.Address+":"+strconv.Itoa(as.conf.Node.APIPort)+"/v1/status", nil)
-	req.SetBasicAuth(as.conf.Node.AuthUser, as.conf.Node.AuthPass)
+	req, _ := http.NewRequest("GET", "http://"+config.Cfg.Node.Address+":"+strconv.Itoa(config.Cfg.Node.APIPort)+"/v1/status", nil)
+	req.SetBasicAuth(config.Cfg.Node.AuthUser, config.Cfg.Node.AuthPass)
 	client := &http.Client{}
 	res, err := client.Do(req)
 	if err != nil {
@@ -70,7 +75,11 @@ func (as *apiServer) poolHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _ = w.Write(raw)
+	_, err = w.Write(raw)
+	if err != nil {
+		logger.Error(err)
+		return
+	}
 }
 
 type registerPaymentMethodForm struct {
@@ -78,7 +87,7 @@ type registerPaymentMethodForm struct {
 	PaymentMethod string `json:"pm"`
 }
 
-func (as *apiServer) minerHandler(w http.ResponseWriter, r *http.Request) {
+func MinerHandler(w http.ResponseWriter, r *http.Request) {
 	var raw []byte
 
 	header := w.Header()
@@ -102,8 +111,8 @@ func (as *apiServer) minerHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if as.db.verifyMiner(login, form.Pass) == correctPassword {
-			as.db.updatePayment(login, form.PaymentMethod)
+		if db.DBServer.VerifyMiner(login, form.Pass) == db.CorrectPassword {
+			db.DBServer.UpdatePayment(login, form.PaymentMethod)
 			raw = []byte("{'status':'ok'}")
 		} else {
 			raw = []byte("{'status':'failed'}")
@@ -112,7 +121,7 @@ func (as *apiServer) minerHandler(w http.ResponseWriter, r *http.Request) {
 		break
 	default: // GET
 		var err error
-		m := as.db.getMinerStatus(login)
+		m := db.DBServer.GetMinerStatus(login)
 		raw, err = json.Marshal(m)
 		if err != nil {
 			logger.Error(err)
@@ -120,21 +129,17 @@ func (as *apiServer) minerHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, _ = w.Write(raw)
+	if _, err := w.Write(raw); err != nil {
+		logger.Error(err)
+	}
 }
 
-func initAPIServer(db *database, conf *config) {
-	as := &apiServer{
-		db:   db,
-		conf: conf,
-	}
-
+func InitAPIServer(address string, port int) {
 	r := mux.NewRouter()
-	r.HandleFunc("/pool", as.poolHandler)
-	r.HandleFunc("/miner/{miner_login}", as.minerHandler)
-	r.HandleFunc("/revenue", as.revenueHandler)
-	r.HandleFunc("/shares", as.sharesHandler)
+	r.HandleFunc("/pool", PoolHandler)
+	r.HandleFunc("/miner/{miner_login}", MinerHandler)
+	r.HandleFunc("/revenue", RevenueHandler)
+	r.HandleFunc("/shares", SharesHandler)
 	http.Handle("/", r)
-	go logger.Fatal(
-		http.ListenAndServe(conf.APIServer.Address+":"+strconv.Itoa(conf.APIServer.Port), nil))
+	logger.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%d", address, port), nil))
 }

@@ -1,27 +1,34 @@
-package main
+package db
 
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/go-redis/redis"
+	"github.com/google/logger"
+	"open-grin-pool/config"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+)
 
-	"github.com/go-redis/redis"
-	"github.com/google/logger"
+type MinerLoginStatusCode int
+const (
+	CorrectPassword MinerLoginStatusCode = 0
+	NoPassword      MinerLoginStatusCode = 1
+	WrongPassword   MinerLoginStatusCode = 2
 )
 
 type database struct {
 	client *redis.Client
-	conf   *config
 }
+var DBServer  *database
 
-func initDB(config *config) *database {
+func InitDB() {
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     config.Storage.Address + ":" + strconv.Itoa(config.Storage.Port),
-		Password: config.Storage.Password,
-		DB:       config.Storage.Db,
+		Addr:     config.Cfg.Storage.Address + ":" + strconv.Itoa(config.Cfg.Storage.Port),
+		Password: config.Cfg.Storage.Password,
+		DB:       config.Cfg.Storage.Db,
 	})
 
 	_, err := rdb.Ping().Result()
@@ -29,7 +36,7 @@ func initDB(config *config) *database {
 		logger.Fatal(err)
 	}
 
-	return &database{rdb, config}
+	DBServer = &database{rdb}
 }
 
 func (db *database) registerMiner(login, pass, payment string) {
@@ -43,7 +50,7 @@ func (db *database) registerMiner(login, pass, payment string) {
 	}
 }
 
-func (db *database) recordShare(user, rig string, diff int64) {
+func (db *database) RecordShare(user, rig string, diff int64) {
 	_, err := db.client.XAdd(
 		&redis.XAddArgs{
 			Stream: "shares2",
@@ -59,32 +66,26 @@ func (db *database) recordShare(user, rig string, diff int64) {
 	}
 }
 
-type minerLoginStatusCode int
 
-var (
-	correctPassword minerLoginStatusCode = 0
-	noPassword      minerLoginStatusCode = 1
-	wrongPassword   minerLoginStatusCode = 2
-)
 
-func (db *database) verifyMiner(login, pass string) minerLoginStatusCode {
+func (db *database) VerifyMiner(login, pass string) MinerLoginStatusCode {
 	passInDB, err := db.client.HGet("user:"+login, "pass").Result()
 	if err != nil {
 		logger.Error(err)
 	}
 
 	if passInDB == "" || passInDB == "x" {
-		return noPassword
+		return NoPassword
 	}
 
 	if passInDB != pass {
-		return wrongPassword
+		return WrongPassword
 	}
 
-	return correctPassword
+	return CorrectPassword
 }
 
-func (db *database) updatePayment(login, payment string) {
+func (db *database) UpdatePayment(login, payment string) {
 	_, err := db.client.HMSet("user:"+login, map[string]interface{}{
 		"payment": payment,
 	}).Result()
@@ -93,7 +94,7 @@ func (db *database) updatePayment(login, payment string) {
 	}
 }
 
-func (db *database) putShare(login, agent string, diff int64) {
+func (db *database) PutShare(login, agent string, diff int64) {
 	db.putDayShare(login, diff)
 	db.putTmpShare(login, agent, diff)
 
@@ -121,7 +122,7 @@ func (db *database) putTmpShare(login, agent string, diff int64) {
 	}
 }
 
-func (db *database) getShares() map[string]string {
+func (db *database) GetShares() map[string]string {
 	shares, err := db.client.HGetAll("shares").Result()
 	if err != nil {
 		logger.Error(err)
@@ -130,7 +131,7 @@ func (db *database) getShares() map[string]string {
 	return shares
 }
 
-func (db *database) getMinerStatus(login string) map[string]interface{} {
+func (db *database) GetMinerStatus(login string) map[string]interface{} {
 	m, err := db.client.HGetAll("user:" + login).Result()
 	if err != nil {
 		logger.Error(err)
@@ -217,14 +218,14 @@ func (db *database) setMinerAgentStatus(login, agent string, diff int64, status 
 	}
 }
 
-func (db *database) putBlockHash(hash string) {
+func (db *database) PutBlockHash(hash string) {
 	_, err := db.client.LPush("blocksFound", hash).Result()
 	if err != nil {
 		logger.Error(err)
 	}
 }
 
-func (db *database) getAllBlockHashes() []string {
+func (db *database) GetAllBlockHashes() []string {
 	l, err := db.client.LRange("blocksFound", 0, -1).Result()
 	if err != nil {
 		logger.Error(err)
@@ -233,7 +234,7 @@ func (db *database) getAllBlockHashes() []string {
 	return l
 }
 
-func (db *database) calcRevenueToday(totalRevenue uint64) {
+func (db *database) CalcRevenueToday(totalRevenue uint64) {
 	allMinersStrSharesTable, err := db.client.HGetAll("shares").Result()
 	if err != nil {
 		logger.Error(err)
@@ -286,7 +287,7 @@ func (db *database) calcRevenueToday(totalRevenue uint64) {
 	_ = f.Close()
 }
 
-func (db *database) getLastDayRevenue() map[string]string {
+func (db *database) GetLastDayRevenue() map[string]string {
 	allMinersRevenueTable, err := db.client.HGetAll("lastDayRevenue").Result()
 	if err != nil {
 		logger.Error(err)
