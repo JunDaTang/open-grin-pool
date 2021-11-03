@@ -1,11 +1,12 @@
-package main
+package config
 
 import (
 	"encoding/json"
-	"os"
-
 	"github.com/google/logger"
+	"os"
 )
+
+var Cfg *config
 
 type config struct {
 	Log struct {
@@ -52,8 +53,8 @@ type config struct {
 	} `json:"payer"`
 }
 
-func parseConfig() *config {
-	f, err := os.Open("config.json")
+func ParseConfig(path string) {
+	f, err := os.Open(path)
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -65,5 +66,5 @@ func parseConfig() *config {
 		logger.Fatal(err)
 	}
 
-	return &conf
+	Cfg = &conf
 }

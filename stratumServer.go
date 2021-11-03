@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"open-grin-pool/config"
+	"open-grin-pool/db"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,9 +18,7 @@ import (
 )
 
 type stratumServer struct {
-	db   *database
 	ln   net.Listener
-	conf *config
 }
 
 type stratumRequest struct {
@@ -49,7 +49,7 @@ func (ms *minerSession) hasNotLoggedIn() bool {
 	return ms.user == ""
 }
 
-func (ms *minerSession) handleMethod(res *stratumResponse, db *database) {
+func (ms *minerSession) handleMethod(res *stratumResponse) {
 	switch res.Method {
 	case "status":
 		if ms.user == "" {
@@ -68,11 +68,11 @@ func (ms *minerSession) handleMethod(res *stratumResponse, db *database) {
 		detail, ok := res.Result.(string)
 		logger.Info(ms.user, ms.rig, " has submit a ", detail, " share")
 		if ok {
-			db.putShare(ms.user, ms.agent, ms.difficulty)
-			db.recordShare(ms.user, ms.rig, ms.difficulty)
+			db.DBServer.PutShare(ms.user, ms.agent, ms.difficulty)
+			db.DBServer.RecordShare(ms.user, ms.rig, ms.difficulty)
 			if strings.Contains(detail, "block") {
 				blockHash := strings.Trim(detail, "block - ")
-				db.putBlockHash(blockHash)
+				db.DBServer.PutBlockHash(blockHash)
 				logger.Warning("block ", blockHash, " has been found by ", ms.user, ms.rig)
 			}
 		}
@@ -107,12 +107,12 @@ func callStatusPerInterval(ctx context.Context, nc *nodeClient) {
 func (ss *stratumServer) handleConn(conn net.Conn) {
 	logger.Info("new conn from ", conn.RemoteAddr())
 	session := &minerSession{
-		difficulty: int64(ss.conf.Node.Diff),
-		edgeBits:   int(ss.conf.StratumServer.EdgeBits),
+		difficulty: int64(config.Cfg.Node.Diff),
+		edgeBits:   int(config.Cfg.StratumServer.EdgeBits),
 	}
 	defer conn.Close()
 	var login string
-	nc := initNodeStratumClient(ss.conf)
+	nc := initNodeStratumClient()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -130,7 +130,7 @@ func (ss *stratumServer) handleConn(conn net.Conn) {
 		var res stratumResponse
 		_ = json.Unmarshal(sr, &res) // suppress the err
 
-		session.handleMethod(&res, ss.db)
+		session.handleMethod(&res)
 	})
 	defer nc.close()
 
@@ -218,23 +218,20 @@ func (ss *stratumServer) handleConn(conn net.Conn) {
 	}
 }
 
-func initStratumServer(db *database, conf *config) {
-	ip := net.ParseIP(conf.StratumServer.Address)
+func initStratumServer() {
 	addr := &net.TCPAddr{
-		IP:   ip,
-		Port: conf.StratumServer.Port,
+		IP:   net.ParseIP(config.Cfg.StratumServer.Address),
+		Port: config.Cfg.StratumServer.Port,
 	}
 	ln, err := net.ListenTCP("tcp", addr)
 	if err != nil {
 		logger.Fatal(err)
 	}
 
-	logger.Warning("listening on ", conf.StratumServer.Port)
+	logger.Warning("listening on ", config.Cfg.StratumServer.Port)
 
 	ss := &stratumServer{
-		db:   db,
 		ln:   ln,
-		conf: conf,
 	}
 
 	//go ss.backupPerInterval()

@@ -3,24 +3,23 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/google/logger"
 	"io"
 	"net"
-
-	"github.com/google/logger"
+	"open-grin-pool/config"
 )
 
 type nodeClient struct {
-	conf *config
-	c    net.Conn
-	enc  *json.Encoder
-	dec  *json.Decoder
+	c   net.Conn
+	enc *json.Encoder
+	dec *json.Decoder
 }
 
-func initNodeStratumClient(conf *config) *nodeClient {
-	ip := net.ParseIP(conf.Node.Address)
+func initNodeStratumClient() *nodeClient {
+	ip := net.ParseIP(config.Cfg.Node.Address)
 	raddr := &net.TCPAddr{
 		IP:   ip,
-		Port: conf.Node.StratumPort,
+		Port: config.Cfg.Node.StratumPort,
 	}
 	conn, err := net.DialTCP("tcp4", nil, raddr)
 	if err != nil {
@@ -29,14 +28,12 @@ func initNodeStratumClient(conf *config) *nodeClient {
 
 	enc := json.NewEncoder(conn)
 	dec := json.NewDecoder(conn)
-	nc := &nodeClient{
-		conf: conf,
-		c:    conn,
-		enc:  enc,
-		dec:  dec,
-	}
 
-	return nc
+	return &nodeClient{
+		c:   conn,
+		enc: enc,
+		dec: dec,
+	}
 }
 
 // registerHandler will hook the callback function to the tcp conn, and call func when recv
@@ -59,19 +56,23 @@ func (nc *nodeClient) registerHandler(ctx context.Context, callback func(sr json
 				continue
 			}
 
-			resp, _ := sr.MarshalJSON()
-			logger.Info("Node returns a response: ", string(resp))
+			resp, err := sr.MarshalJSON()
+			if err != nil {
+				logger.Error(err)
+				continue
+			}
 
+			logger.Info("Node returns a response: ", string(resp))
 			go callback(sr)
 		}
 	}
 }
 
 func (nc *nodeClient) reconnect() error {
-	ip := net.ParseIP(nc.conf.Node.Address)
+	ip := net.ParseIP(config.Cfg.Node.Address)
 	raddr := &net.TCPAddr{
 		IP:   ip,
-		Port: nc.conf.Node.StratumPort,
+		Port: config.Cfg.Node.StratumPort,
 	}
 	conn, err := net.DialTCP("tcp4", nil, raddr)
 	if err != nil {
@@ -87,5 +88,7 @@ func (nc *nodeClient) reconnect() error {
 }
 
 func (nc *nodeClient) close() {
-	_ = nc.c.Close()
+	if err := nc.c.Close(); err != nil {
+		logger.Error(err)
+	}
 }
